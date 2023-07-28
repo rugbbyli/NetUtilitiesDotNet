@@ -9,65 +9,70 @@ namespace NetUtilities
 {
     public class Ping
     {
+        public enum Status
+        {
+            Success,
+            ResolveIpError,
+            PingError,
+            PingException,
+        }
         public struct Result
         {
-            public int PacketSent;
-            public int PacketReceived;
-
             public string Target;
+            public Status Status;
             public IPAddress Address;
             public int PacketSize;
-            public List<(int time, int ttl)> Results;
+            public IPStatus PingStatus;
+            public int Time;
+            public int Ttl;
 
             public override string ToString()
             {
-                /*
-正在 Ping auth.80166.com [52.80.22.120] 具有 32 字节的数据:
-请求超时。
-请求超时。
-请求超时。
-请求超时。
-请求超时。
-
-52.80.22.120 的 Ping 统计信息:
-    数据包: 已发送 = 5，已接收 = 0，丢失 = 5 (100% 丢失)，
-                 */
-                var timeStats = Results.Count > 0
-                    ? $", time-max={Results.Max(i => i.time)}ms, time-min={Results.Min(i => i.time)}ms, time-avg={Results.Average(i => i.time):N0}ms"
-                    : string.Empty;
-                return
-                    $"Ping {Target} [{Address}] with {PacketSize} bytes data, sent={PacketSent}, recv={PacketReceived}, lost={PacketSent - PacketReceived}{timeStats}";
+                return $"Ping {Target} [{Address}] with {PacketSize} bytes data, status: {Status},{PingStatus}, time: {Time}ms, TTL: {Ttl}";
             }
         }
         
         public class Options
         {
             public string target;
-            public int times = 4;
             public int timeout = 5000;
             public int packetSize = 32;
             public int ttl = 64;
             public bool fragment = false;
         }
 
-        public static async Task<Result> RunAsync(Options options, CancellationToken cancellationToken)
+        public static async Task<Result> RunAsync(Options options)
         {
-            var runTimes = options.times == -1 ? int.MaxValue : options.times;
+            var ip = NsLookup.GetIp(options.target);
+            var result = new Result() {PacketSize = options.packetSize, Target = options.target};
+            if (ip == null)
+            {
+                result.Status = Status.ResolveIpError;
+                return result;
+            }
             var buffer = new byte[options.packetSize];
-            var result = new Result() {PacketSize = options.packetSize, Target = options.target, Results = new List<(int time, int ttl)>()};
             using (var ping = new System.Net.NetworkInformation.Ping())
             {
                 var opts = new PingOptions(options.ttl, !options.fragment);
-                while (runTimes-- > 0 && !cancellationToken.IsCancellationRequested)
+                try
                 {
-                    result.PacketSent++;
                     var reply = await ping.SendPingAsync(options.target, options.timeout, buffer, opts);
+                    result.PingStatus = reply.Status;
+                    result.Address = reply.Address;
                     if (reply.Status == IPStatus.Success)
                     {
-                        result.Results.Add(((int)reply.RoundtripTime, reply.Options.Ttl));
-                        result.PacketReceived++;
-                        result.Address = reply.Address;
+                        result.Time = (int)reply.RoundtripTime;
+                        result.Ttl = reply.Options.Ttl;
+                        result.Status = Status.Success;
                     }
+                    else
+                    {
+                        result.Status = Status.PingError;
+                    }
+                }
+                catch
+                {
+                    result.Status = Status.PingException;
                 }
             }
 

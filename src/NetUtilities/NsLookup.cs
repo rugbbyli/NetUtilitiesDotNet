@@ -5,35 +5,30 @@ public class NsLookup
 {
     public static string GetHostName(IPAddress ip)
     {
-        if (TryGetHostEntry(ip.ToString(), out var host))
+        if (ip != null)
         {
-            return host.HostName;
-        }
-
-        return string.Empty;
-    }
-
-    public static IPAddress GetIp(string hostName)
-    {
-        if (TryGetHostEntry(hostName, out var host))
-        {
-            return host.AddressList.FirstOrDefault();
+            try
+            {
+                return Dns.GetHostEntry(ip).HostName;
+            }
+            catch
+            {
+                return null;
+            }
         }
 
         return null;
     }
 
-    private static bool TryGetHostEntry(string ipOrHost, out IPHostEntry hostEntry)
+    public static IPAddress GetIp(string hostName)
     {
         try
         {
-            hostEntry = Dns.GetHostEntry(ipOrHost);
-            return true;
+            return Dns.GetHostAddresses(hostName).FirstOrDefault();
         }
         catch
         {
-            hostEntry = null;
-            return false;
+            return null;
         }
     }
 }

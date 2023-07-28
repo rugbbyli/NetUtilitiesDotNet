@@ -3,13 +3,28 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Net;
 using System.Net.NetworkInformation;
+using System.Threading.Tasks;
 
 namespace NetUtilities
 {
     public class TraceRoute
     {
+        public struct Result
+        {
+            public string Target;
+            public Status Status;
+            public List<HopInfo> Hops;
+        }
+
+        public enum Status
+        {
+            Success,
+            UnknownHost,
+        }
+
         public struct HopInfo
         {
+            public int Hop;
             public IPStatus Status;
             public int RTT;
             public IPAddress Address;
@@ -27,48 +42,58 @@ namespace NetUtilities
             }
         }
         
-        public struct Options
+        public class Options
         {
-            public int MaxHops;
-            public int pingTimeout;
-            public int retryTimes;
-            public bool resolveHost;
+            public int MaxHops = 30;
+            public int PingTimeout = 4000;
+            public int RetryTimes = 3;
+            public bool ResolveHost = true;
+            public int PacketSize = 32;
         }
 
-        public static Options DefaultOpts = new Options() { MaxHops = 30, pingTimeout = 4000, resolveHost = true, retryTimes = 3 };
-        
-        public static IEnumerable<HopInfo> Run(string ipAddressOrHostName, Options opts, Action<string> logger = null)
+        public event Action<HopInfo> OnHop;
+
+        public async Task<Result> RunAsync(string ipAddressOrHostName, Options opts)
         {
-            IPAddress ipAddress = Dns.GetHostEntry(ipAddressOrHostName).AddressList[0];
-            List<HopInfo> results = new List<HopInfo>();
+            var result = new Result()
+            {
+                Target = ipAddressOrHostName
+            };
+            IPAddress ipAddress = NsLookup.GetIp(ipAddressOrHostName);
+            if(ipAddress == null)
+            {
+                result.Status = Status.UnknownHost;
+                return result;
+            }
+
+            result.Status = Status.Success;
+            result.Hops = new List<HopInfo>();
 
             using(var pingSender = new System.Net.NetworkInformation.Ping())
             {
                 PingOptions pingOptions = new PingOptions();
                 Stopwatch stopWatch = new Stopwatch();
-                byte[] bytes = new byte[32];
+                byte[] bytes = new byte[opts.PacketSize];
   
                 pingOptions.DontFragment = true;
                 pingOptions.Ttl = 1;
                 
-                logger?.Invoke($"Tracing route to {ipAddress} over a maximum of {opts.MaxHops} hops:");
-
-                for(int i = 1; i < opts.MaxHops + 1; i++)
+                for(int i = 1; i <= opts.MaxHops; i++)
                 {
                     stopWatch.Restart();
-                    PingReply pingReply = Ping(pingSender, ipAddress, bytes, pingOptions, opts.pingTimeout, opts.retryTimes);
+                    PingReply pingReply = await PingAsync(pingSender, ipAddress, bytes, pingOptions, opts.PingTimeout, opts.RetryTimes);
                     stopWatch.Stop();
 
                     var hopInfo = new HopInfo()
                     {
-                        Status = pingReply.Status, Address = pingReply.Address, RTT = (int)stopWatch.ElapsedMilliseconds
+                        Hop = i, Status = pingReply.Status, Address = pingReply.Address, RTT = (int)stopWatch.ElapsedMilliseconds
                     };
-                    if (opts.resolveHost && hopInfo.Status != IPStatus.TimedOut)
+                    if (opts.ResolveHost && hopInfo.Status != IPStatus.TimedOut)
                     {
                         hopInfo.HostName = NsLookup.GetHostName(pingReply.Address);
                     }
-                    results.Add(hopInfo);
-                    logger?.Invoke($"{i}\t{hopInfo}");
+                    result.Hops.Add(hopInfo);
+                    OnHop?.Invoke(hopInfo);
   
                     if(pingReply.Status == IPStatus.Success)
                     {
@@ -77,20 +102,19 @@ namespace NetUtilities
   
                     pingOptions.Ttl++;
                 }
-                
             }
 
-            return results;
+            return result;
         }
 
-        private static PingReply Ping(System.Net.NetworkInformation.Ping ping, IPAddress address, byte[] buffer, PingOptions options, int timeout,
+        private static async Task<PingReply> PingAsync(System.Net.NetworkInformation.Ping ping, IPAddress address, byte[] buffer, PingOptions options, int timeout,
             int retryTimes)
         {
             int times = 0;
             PingReply reply;
             do
             {
-                reply = ping.Send(address, timeout, buffer, options);
+                reply = await ping.SendPingAsync(address, timeout, buffer, options);
             } while (times++ < retryTimes && reply.Status == IPStatus.TimedOut);
 
             return reply;
