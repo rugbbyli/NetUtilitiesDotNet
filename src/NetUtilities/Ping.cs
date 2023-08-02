@@ -12,13 +12,12 @@ namespace NetUtilities
         public enum Status
         {
             Success,
-            ResolveIpError,
-            PingError,
-            PingException,
+            Fail,
+            Exception,
         }
         public struct Result
         {
-            public string Target;
+            public IPAddress Target;
             public Status Status;
             public IPAddress Address;
             public int PacketSize;
@@ -34,7 +33,7 @@ namespace NetUtilities
         
         public class Options
         {
-            public string target;
+            public IPAddress target;
             public int timeout = 5000;
             public int packetSize = 32;
             public int ttl = 64;
@@ -43,13 +42,8 @@ namespace NetUtilities
 
         public static async Task<Result> RunAsync(Options options)
         {
-            var ip = NsLookup.GetIp(options.target);
             var result = new Result() {PacketSize = options.packetSize, Target = options.target};
-            if (ip == null)
-            {
-                result.Status = Status.ResolveIpError;
-                return result;
-            }
+            
             var buffer = new byte[options.packetSize];
             using (var ping = new System.Net.NetworkInformation.Ping())
             {
@@ -67,12 +61,12 @@ namespace NetUtilities
                     }
                     else
                     {
-                        result.Status = Status.PingError;
+                        result.Status = Status.Fail;
                     }
                 }
                 catch
                 {
-                    result.Status = Status.PingException;
+                    result.Status = Status.Exception;
                 }
             }
 
