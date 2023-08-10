@@ -57,9 +57,13 @@ namespace Demo
                     else
                     {
                         var opts = new Ping.Options() { target = ip, ttl = 10, timeout = 10000 };
-                        var result = await Ping.RunAsync(opts);
-                        Console.WriteLine($"ping {host} ({ip}): {opts.packetSize} data bytes");
-                        Console.WriteLine(result);
+                        using (var ping = new Ping())
+                        {
+                            var result = await ping.RunAsync(opts);
+                            Console.WriteLine($"ping {host} ({ip}): {opts.packetSize} data bytes");
+                            Console.WriteLine(result);
+                        }
+                        
                         Console.WriteLine("ping finish.");
                     }
                 }
@@ -75,11 +79,13 @@ namespace Demo
                     else
                     {
                         var trace = new TraceRoute();
-                        var options = new TraceRoute.Options() {Target = ip, RetryTimes = 0, PacketSize = 64};
+                        var ping = new Ping();
+                        var options = new TraceRoute.Options() {Target = ip, RetryTimes = 0, PacketSize = 64, PingDelegate = ping};
                         trace.OnHop += (hop) => Console.WriteLine(hop);
                         
                         Console.WriteLine($"traceroute to {host} ({ip}), {options.MaxHops} hops max, {options.PacketSize} byte packets");
                         await trace.RunAsync(options);
+                        ping.Dispose();
                         Console.WriteLine($"traceroute finish.");
                     }
                     

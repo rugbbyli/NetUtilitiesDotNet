@@ -12,14 +12,7 @@ namespace NetUtilities
         public struct Result
         {
             public IPAddress Target;
-            public Status Status;
             public List<HopInfo> Hops;
-        }
-
-        public enum Status
-        {
-            Success,
-            UnknownHost,
         }
 
         public struct HopInfo
@@ -50,6 +43,7 @@ namespace NetUtilities
             public int RetryTimes = 3;
             public bool ResolveHost = true;
             public int PacketSize = 32;
+            public IPingDelegate PingDelegate;
         }
 
         public event Action<HopInfo> OnHop;
@@ -58,69 +52,57 @@ namespace NetUtilities
         {
             var result = new Result()
             {
-                Target = opts.Target, Status = Status.Success, Hops = new List<HopInfo>()
+                Target = opts.Target, Hops = new List<HopInfo>()
             };
-            
-            using(var pingSender = new System.Net.NetworkInformation.Ping())
-            {
-                PingOptions pingOptions = new PingOptions();
-                Stopwatch stopWatch = new Stopwatch();
-                byte[] bytes = new byte[opts.PacketSize];
-  
-                pingOptions.DontFragment = false;
-                pingOptions.Ttl = 1;
-                
-                for(int i = 1; i <= opts.MaxHops; i++)
-                {
-                    stopWatch.Restart();
-                    var (status, address) = await PingAsync(pingSender, opts.Target, bytes, pingOptions, opts.PingTimeout, opts.RetryTimes);
-                    stopWatch.Stop();
 
-                    var hopInfo = new HopInfo()
-                    {
-                        Hop = i, Status = status, Address = address, RTT = (int)stopWatch.ElapsedMilliseconds
-                    };
-                    if (opts.ResolveHost && hopInfo.Status != IPStatus.TimedOut)
-                    {
-                        hopInfo.HostName = NsLookup.GetHostName(address);
-                    }
-                    result.Hops.Add(hopInfo);
-                    OnHop?.Invoke(hopInfo);
+            var ping = opts.PingDelegate;
+            
+            Stopwatch stopWatch = new Stopwatch();
+            byte[] bytes = new byte[opts.PacketSize];
+                
+            for(int i = 1; i <= opts.MaxHops; i++)
+            {
+                var reply = await PingAsync(ping, opts.Target, bytes, i, opts.PingTimeout, opts.RetryTimes);
+
+                var hopInfo = new HopInfo()
+                {
+                    Hop = i, Status = reply.PingStatus, Address = reply.Address, RTT = reply.Time
+                };
+                if (opts.ResolveHost && hopInfo.Status != IPStatus.TimedOut)
+                {
+                    hopInfo.HostName = NsLookup.GetHostName(reply.Address);
+                }
+                result.Hops.Add(hopInfo);
+                OnHop?.Invoke(hopInfo);
   
-                    if(status == IPStatus.Success)
-                    {
-                        break;
-                    }
-  
-                    pingOptions.Ttl++;
+                if(reply.Status == PingStatus.Success)
+                {
+                    break;
                 }
             }
 
             return result;
         }
 
-        private static async Task<(IPStatus, IPAddress)> PingAsync(System.Net.NetworkInformation.Ping ping, IPAddress target, byte[] buffer, PingOptions options, int timeout,
+        private static async Task<PingReply> PingAsync(IPingDelegate ping, IPAddress target, byte[] buffer, int ttl, int timeout,
             int retryTimes)
         {
-            int times = 0;
-            IPStatus status;
-            IPAddress address = null;
+            PingReply reply = new PingReply();
             do
             {
                 try
                 {
-                    var reply = await ping.SendPingAsync(target, timeout, buffer, options);
-                    status = reply.Status;
-                    address = reply.Address;
+                    reply = await ping.RunAsync(target, ttl, timeout, buffer);
                 }
                 catch (Exception e)
                 {
-                    Console.WriteLine(e);
-                    status = IPStatus.Unknown;
+                    reply.Target = target;
+                    reply.Status = PingStatus.Exception;
+                    reply.Exception = e;
                 }
-            } while (times++ < retryTimes && (status == IPStatus.TimedOut || status == IPStatus.Unknown));
+            } while (retryTimes-- > 0 && reply.Status == PingStatus.Fail && reply.PingStatus == IPStatus.TimedOut);
 
-            return (status, address);
+            return reply;
         }
     }
 }
