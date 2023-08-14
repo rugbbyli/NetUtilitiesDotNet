@@ -26,13 +26,24 @@ namespace NetUtilities
 
             public static IPHeader Parse(byte[] packet, AddressFamily addressFamily)
             {
-                //fixme: detect ipv4 or ipv6
-                return new IPHeader()
+                if(addressFamily == AddressFamily.InterNetwork)
                 {
-                    TimeToLive = packet[8],
-                    Source = ParseIP(packet, 12, 4),
-                    Destination = ParseIP(packet, 16, 4),
-                };
+                    return new IPHeader()
+                    {
+                        TimeToLive = packet[8],
+                        Source = ParseIP(packet, 12, 4),
+                        Destination = ParseIP(packet, 16, 4),
+                    };
+                }
+                else
+                {
+                    return new IPHeader()
+                    {
+                        TimeToLive = packet[7],
+                        Source = ParseIP(packet, 8, 16),
+                        Destination = ParseIP(packet, 24, 16),
+                    };
+                }
             }
 
             private static IPAddress ParseIP(byte[] data, int index, int length)
@@ -47,13 +58,32 @@ namespace NetUtilities
         
         private struct IcmpPacket
         {
-            public class Types
+            public interface IHeaderTypes
             {
-                public const int EchoRequest = 8;
-                public const int EchoResponse = 0;
-                public const int DestUnavailable = 3;
-                public const int TimeExceeded = 11;
+                byte EchoRequest { get; }
+                byte EchoResponse { get; }
+                byte DestUnavailable { get; }
+                byte TimeExceeded { get; }
             }
+            
+            private class HeaderTypes4 : IHeaderTypes
+            {
+                public byte EchoRequest => 8;
+                public byte EchoResponse => 0;
+                public byte DestUnavailable => 3;
+                public byte TimeExceeded => 11;
+            }
+            
+            private class HeaderTypes6 : IHeaderTypes
+            {
+                public byte EchoRequest => 128;
+                public byte EchoResponse => 129;
+                public byte DestUnavailable => 1;
+                public byte TimeExceeded => 3;
+            }
+
+            public static IHeaderTypes HeaderTypesV4 { get; } = new HeaderTypes4();
+            public static IHeaderTypes HeaderTypesV6 { get; } = new HeaderTypes6();
             
             public byte Type;
             public byte Code;
@@ -62,11 +92,11 @@ namespace NetUtilities
             public Int16 SequenceNum;
             public byte[] Payload;
 
-            public static IcmpPacket BuildEchoRequest(Int16 identifier, Int16 sequenceNum, byte[] payload)
+            public static IcmpPacket BuildEchoRequest(AddressFamily addressFamily, Int16 identifier, Int16 sequenceNum, byte[] payload)
             {
                 return new IcmpPacket()
                 {
-                    Type = Types.EchoRequest,
+                    Type = addressFamily == AddressFamily.InterNetwork ? HeaderTypesV4.EchoRequest : HeaderTypesV6.EchoRequest,
                     Code = 0,
                     Identifier = identifier,
                     SequenceNum = sequenceNum,
@@ -149,7 +179,7 @@ namespace NetUtilities
             var socket = new Socket(target.AddressFamily, SocketType.Dgram, ProtocolType.Icmp);
             socket.DontFragment = !fragment;
             var timeBegin = DateTime.Now.Ticks;
-            var packet = IcmpPacket.BuildEchoRequest(0, 0, buffer).ToBytes();
+            var packet = IcmpPacket.BuildEchoRequest(socket.AddressFamily, 0, 0, buffer).ToBytes();
             try
             {
                 socket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.IpTimeToLive, ttl);
@@ -173,24 +203,30 @@ namespace NetUtilities
                 result.Ttl = ipHeader.TimeToLive;
                 result.Time = (int)((DateTime.Now.Ticks - timeBegin) / TimeSpan.TicksPerMillisecond);
 
-                switch (icmpHeader.Type)
+                var headerTypes = target.AddressFamily == AddressFamily.InterNetwork
+                    ? IcmpPacket.HeaderTypesV4
+                    : IcmpPacket.HeaderTypesV6;
+
+                if (icmpHeader.Type == headerTypes.EchoResponse)
                 {
-                    case IcmpPacket.Types.EchoResponse:
-                        result.Status = PingStatus.Success;
-                        result.PingStatus = IPStatus.Success;
-                        break;
-                    case IcmpPacket.Types.TimeExceeded:
-                        result.Status = PingStatus.Fail;
+                    result.Status = PingStatus.Success;
+                    result.PingStatus = IPStatus.Success;
+                }
+                else
+                {
+                    result.Status = PingStatus.Fail;
+                    if (icmpHeader.Type == headerTypes.TimeExceeded)
+                    {
                         result.PingStatus = IPStatus.TtlExpired;
-                        break;
-                    case IcmpPacket.Types.DestUnavailable:
-                        result.Status = PingStatus.Fail;
+                    }
+                    else if (icmpHeader.Type == headerTypes.DestUnavailable)
+                    {
                         result.PingStatus = IPStatus.DestinationUnreachable;
-                        break;
-                    default:
-                        result.Status = PingStatus.Fail;
+                    }
+                    else
+                    {
                         result.PingStatus = IPStatus.Unknown;
-                        break;
+                    }
                 }
             }
             catch (TimeoutException)
