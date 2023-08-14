@@ -2,7 +2,6 @@ using System;
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
-using System.Text;
 using System.Threading.Tasks;
 
 namespace NetUtilities
@@ -48,6 +47,14 @@ namespace NetUtilities
         
         private struct IcmpPacket
         {
+            public class Types
+            {
+                public const int EchoRequest = 8;
+                public const int EchoResponse = 0;
+                public const int DestUnavailable = 3;
+                public const int TimeExceeded = 11;
+            }
+            
             public byte Type;
             public byte Code;
             public Int16 Checksum;
@@ -59,7 +66,7 @@ namespace NetUtilities
             {
                 return new IcmpPacket()
                 {
-                    Type = 8,
+                    Type = Types.EchoRequest,
                     Code = 0,
                     Identifier = identifier,
                     SequenceNum = sequenceNum,
@@ -124,6 +131,11 @@ namespace NetUtilities
         {
             return RunAsync(target, ttl, false, timeout, new byte[packetSize]);
         }
+
+        public Task<PingReply> RunAsync(IPAddress target, int ttl, int timeout, byte[] buffer)
+        {
+            return RunAsync(target, ttl, false, timeout, buffer);
+        }
         
         public Task<PingReply> RunAsync(Options options)
         {
@@ -142,7 +154,8 @@ namespace NetUtilities
             {
                 socket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.IpTimeToLive, ttl);
 
-                await socket.SendToAsync(new ArraySegment<byte>(packet), SocketFlags.None, new IPEndPoint(target, Port));
+                await socket.SendToAsync(new ArraySegment<byte>(packet), SocketFlags.None,
+                    new IPEndPoint(target, Port));
                 var recvBuf = new ArraySegment<byte>();
                 var recvTask = socket.ReceiveAsync(recvBuf, SocketFlags.None);
                 var timeoutTask = Task.Delay(timeout);
@@ -160,10 +173,35 @@ namespace NetUtilities
                 result.Ttl = ipHeader.TimeToLive;
                 result.Time = (int)((DateTime.Now.Ticks - timeBegin) / TimeSpan.TicksPerMillisecond);
 
-                //fixme: parse status and ipstatus
+                switch (icmpHeader.Type)
+                {
+                    case IcmpPacket.Types.EchoResponse:
+                        result.Status = PingStatus.Success;
+                        result.PingStatus = IPStatus.Success;
+                        break;
+                    case IcmpPacket.Types.TimeExceeded:
+                        result.Status = PingStatus.Fail;
+                        result.PingStatus = IPStatus.TtlExpired;
+                        break;
+                    case IcmpPacket.Types.DestUnavailable:
+                        result.Status = PingStatus.Fail;
+                        result.PingStatus = IPStatus.DestinationUnreachable;
+                        break;
+                    default:
+                        result.Status = PingStatus.Fail;
+                        result.PingStatus = IPStatus.Unknown;
+                        break;
+                }
+            }
+            catch (TimeoutException)
+            {
+                result.Status = PingStatus.Fail;
+                result.PingStatus = IPStatus.TimedOut;
             }
             catch (Exception e)
             {
+                result.Status = PingStatus.Exception;
+                result.PingStatus = IPStatus.Unknown;
                 result.Exception = e;
             }
             finally
@@ -171,32 +209,7 @@ namespace NetUtilities
                 socket.Close();
             }
 
-            // return new PingReply()
-            // {
-            //     Target = opts.target,
-            //     Address = fromIp,
-            //     Status = icmpType switch
-            //     {
-            //         0 => PingStatus.Success,
-            //         _ when err is TimeoutException or null => PingStatus.Fail,
-            //         _ => PingStatus.Exception,
-            //     },
-            //     PingStatus = icmpType switch
-            //     {
-            //         0 => IPStatus.Success,
-            //         11 => IPStatus.TtlExpired,
-            //         _ when err is TimeoutException => IPStatus.TimedOut,
-            //         _ => IPStatus.Unknown,
-            //     },
-            //     Ttl = ttl,
-            //     Time = (int)time,
-            //     PacketSize = recvSize,
-            //     Exception = err,
-            // };
-
             return result;
         }
-        
-        
     }
 }
