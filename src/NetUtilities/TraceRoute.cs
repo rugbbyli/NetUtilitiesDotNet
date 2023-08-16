@@ -12,6 +12,7 @@ namespace NetUtilities
         public struct Result
         {
             public IPAddress Target;
+            public bool Succeed;
             public List<HopInfo> Hops;
         }
 
@@ -80,6 +81,7 @@ namespace NetUtilities
 
                 if(reply.Status == PingStatus.Success)
                 {
+                    result.Succeed = true;
                     break;
                 }
             }
