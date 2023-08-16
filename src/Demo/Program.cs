@@ -41,29 +41,32 @@ namespace Demo
                 {
                     Console.WriteLine("Please input host name:");
                     var host = Console.ReadLine();
-                    var ip = NsLookup.GetIp(host);
-                    var host2 = NsLookup.GetHostName(ip);
+                    var ip = await NsLookup.GetIpAsync(host);
+                    var host2 = await NsLookup.GetHostNameAsync(ip);
                     Console.WriteLine($"ip of {host} is {ip}, host of {ip} is {host2}");
                 }
                 else if(input == Command.Ping)
                 {
                     Console.WriteLine("Please input host name or ip:");
                     var host = Console.ReadLine();
-                    var ip = NsLookup.GetIp(host);
+                    var ip = await NsLookup.GetIpAsync(host);
+                    Console.WriteLine("Please input ttl (default 64):");
+                    if (!int.TryParse(Console.ReadLine(), out var ttl))
+                    {
+                        ttl = 64;
+                    }
                     if (ip == null)
                     {
                         Console.WriteLine($"ping {host} failed, resolve ip error.");
                     }
                     else
                     {
-                        var opts = new Ping.Options() { target = ip, ttl = 10, timeout = 10000 };
-                        using (var ping = new Ping())
-                        {
-                            var result = await ping.RunAsync(opts);
-                            Console.WriteLine($"ping {host} ({ip}): {opts.packetSize} data bytes");
-                            Console.WriteLine(result);
-                        }
-                        
+                        IPingDelegate ping = new Ping();
+                        var timeout = 4000;
+                        var result = await ping.RunAsync(ip, ttl, timeout, 32);
+                        Console.WriteLine($"ping {host} ({ip}) with ttl {ttl} and timeout {timeout}");
+                        Console.WriteLine(result);
+                        (ping as IDisposable)?.Dispose();
                         Console.WriteLine("ping finish.");
                     }
                 }
@@ -71,7 +74,7 @@ namespace Demo
                 {
                     Console.WriteLine("Please input host name:");
                     var host = Console.ReadLine();
-                    var ip = NsLookup.GetIp(host);
+                    var ip = await NsLookup.GetIpAsync(host);
                     if (ip == null)
                     {
                         Console.WriteLine($"traceroute to {host} failed, resolve ip error.");
@@ -79,13 +82,13 @@ namespace Demo
                     else
                     {
                         var trace = new TraceRoute();
-                        var ping = new Ping();
-                        var options = new TraceRoute.Options() {Target = ip, RetryTimes = 0, PacketSize = 64, PingDelegate = ping};
+                        var ping = new UDPPing();
+                        var options = new TraceRoute.Options() {Target = ip, RetryTimes = 0, PacketSize = 32, PingDelegate = ping};
                         trace.OnHop += (hop) => Console.WriteLine(hop);
                         
                         Console.WriteLine($"traceroute to {host} ({ip}), {options.MaxHops} hops max, {options.PacketSize} byte packets");
                         await trace.RunAsync(options);
-                        ping.Dispose();
+                        
                         Console.WriteLine($"traceroute finish.");
                     }
                     

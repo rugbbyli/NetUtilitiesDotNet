@@ -6,6 +6,8 @@
         <Nullable>enable</Nullable>
         <LangVersion>10</LangVersion>
         <OutputType>Exe</OutputType>
+        <Configurations>Debug;Release;DebugAndroid</Configurations>
+        <Platforms>AnyCPU</Platforms>
     </PropertyGroup>
 
     <ItemGroup>

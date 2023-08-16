@@ -2,6 +2,14 @@
 
     <PropertyGroup>
         <TargetFramework>netstandard2.0</TargetFramework>
+        <Configurations>Debug;Release;DebugAndroid</Configurations>
+        <Platforms>AnyCPU</Platforms>
+    </PropertyGroup>
+
+    <PropertyGroup Condition=" '$(Configuration)' == 'DebugAndroid' ">
+      <OutputPath>bin\Debug/netstandard2.0/android/</OutputPath>
+      <DefineConstants>TRACE;DEBUG;ANDROID;</DefineConstants>
+      <DebugSymbols>true</DebugSymbols>
     </PropertyGroup>
 
 </Project>

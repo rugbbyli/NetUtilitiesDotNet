@@ -8,15 +8,17 @@ Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
 		Release|Any CPU = Release|Any CPU
+		DebugAndroid|Any CPU = DebugAndroid|Any CPU
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
 		{771D347F-3DFB-40CB-8FDB-B8FD13DEC087}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{771D347F-3DFB-40CB-8FDB-B8FD13DEC087}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{771D347F-3DFB-40CB-8FDB-B8FD13DEC087}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{771D347F-3DFB-40CB-8FDB-B8FD13DEC087}.Release|Any CPU.Build.0 = Release|Any CPU
+		{771D347F-3DFB-40CB-8FDB-B8FD13DEC087}.DebugAndroid|Any CPU.ActiveCfg = DebugAndroid|Any CPU
+		{771D347F-3DFB-40CB-8FDB-B8FD13DEC087}.DebugAndroid|Any CPU.Build.0 = DebugAndroid|Any CPU
 		{0D9E0C7D-4BDB-4C60-85E2-315D0371F5BA}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{0D9E0C7D-4BDB-4C60-85E2-315D0371F5BA}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{0D9E0C7D-4BDB-4C60-85E2-315D0371F5BA}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{0D9E0C7D-4BDB-4C60-85E2-315D0371F5BA}.Release|Any CPU.Build.0 = Release|Any CPU
+		{0D9E0C7D-4BDB-4C60-85E2-315D0371F5BA}.DebugAndroid|Any CPU.ActiveCfg = DebugAndroid|Any CPU
 	EndGlobalSection
 EndGlobal

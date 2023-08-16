@@ -1,15 +1,16 @@
 ﻿using System.Linq;
 using System.Net;
+using System.Threading.Tasks;
 
 public class NsLookup
 {
-    public static string GetHostName(IPAddress ip)
+    public static async Task<string> GetHostNameAsync(IPAddress ip)
     {
         if (ip != null)
         {
             try
             {
-                return Dns.GetHostEntry(ip).HostName;
+                return (await Dns.GetHostEntryAsync(ip)).HostName;
             }
             catch
             {
@@ -20,11 +21,11 @@ public class NsLookup
         return null;
     }
 
-    public static IPAddress GetIp(string hostName)
+    public static async Task<IPAddress> GetIpAsync(string hostName)
     {
         try
         {
-            return Dns.GetHostAddresses(hostName).FirstOrDefault();
+            return (await Dns.GetHostAddressesAsync(hostName)).FirstOrDefault();
         }
         catch
         {

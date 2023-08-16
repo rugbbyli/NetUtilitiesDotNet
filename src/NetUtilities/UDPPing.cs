@@ -1,25 +1,19 @@
 using System;
+using System.Diagnostics;
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
+using System.Runtime.InteropServices;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace NetUtilities
 {
     public class UDPPing : IPingDelegate
     {
-        public class Options
-        {
-            public IPAddress target;
-            public int timeout = 5000;
-            public int packetSize = 32;
-            public int ttl = 64;
-            public bool fragment = false;
-        }
-        
-        
         private struct IPHeader
         {
+            public int Size;
             public IPAddress Source;
             public IPAddress Destination;
             public byte TimeToLive;
@@ -30,6 +24,7 @@ namespace NetUtilities
                 {
                     return new IPHeader()
                     {
+                        Size = (packet[0] & 0x0f) * 4,
                         TimeToLive = packet[8],
                         Source = ParseIP(packet, 12, 4),
                         Destination = ParseIP(packet, 16, 4),
@@ -39,6 +34,7 @@ namespace NetUtilities
                 {
                     return new IPHeader()
                     {
+                        Size = 40,
                         TimeToLive = packet[7],
                         Source = ParseIP(packet, 8, 16),
                         Destination = ParseIP(packet, 24, 16),
@@ -66,6 +62,9 @@ namespace NetUtilities
                 byte TimeExceeded { get; }
             }
             
+            /// <summary>
+            /// https://en.wikipedia.org/wiki/Internet_Control_Message_Protocol
+            /// </summary>
             private class HeaderTypes4 : IHeaderTypes
             {
                 public byte EchoRequest => 8;
@@ -74,6 +73,9 @@ namespace NetUtilities
                 public byte TimeExceeded => 11;
             }
             
+            /// <summary>
+            /// https://en.wikipedia.org/wiki/ICMPv6
+            /// </summary>
             private class HeaderTypes6 : IHeaderTypes
             {
                 public byte EchoRequest => 128;
@@ -157,19 +159,14 @@ namespace NetUtilities
             }
         }
         
-        public Task<PingReply> RunAsync(IPAddress target, int ttl, int timeout, int packetSize)
+        public Task<PingReply> RunAsync(IPAddress target, int ttl = 64, int timeout = 5000, int packetSize = 32)
         {
-            return RunAsync(target, ttl, false, timeout, new byte[packetSize]);
+            return RunAsync(target, ttl, false, timeout, new byte[packetSize].Fill(0xbb));
         }
 
         public Task<PingReply> RunAsync(IPAddress target, int ttl, int timeout, byte[] buffer)
         {
             return RunAsync(target, ttl, false, timeout, buffer);
-        }
-        
-        public Task<PingReply> RunAsync(Options options)
-        {
-            return RunAsync(options.target, options.ttl, options.fragment, options.timeout, new byte[options.packetSize]);
         }
         
         public async Task<PingReply> RunAsync(IPAddress target, int ttl, bool fragment, int timeout, byte[] buffer)
@@ -183,24 +180,24 @@ namespace NetUtilities
             try
             {
                 socket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.IpTimeToLive, ttl);
+                socket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.MulticastTimeToLive, ttl);
 
                 await socket.SendToAsync(new ArraySegment<byte>(packet), SocketFlags.None,
                     new IPEndPoint(target, Port));
-                var recvBuf = new ArraySegment<byte>();
-                var recvTask = socket.ReceiveAsync(recvBuf, SocketFlags.None);
-                var timeoutTask = Task.Delay(timeout);
-                var finished = await Task.WhenAny(recvTask, timeoutTask);
-                if (finished == timeoutTask)
-                {
-                    throw new TimeoutException();
-                }
+                var recvBuf = new ArraySegment<byte>(new byte[48 + buffer.Length + 28]);
+                var recvRet = await socket.ReceiveFromAsync(recvBuf, SocketFlags.None, new IPEndPoint(0, 0)).Timeout(timeout);
 
-                result.PacketSize = recvBuf.Count;
+                result.PacketSize = recvRet.ReceivedBytes;
+                result.Address = (recvRet.RemoteEndPoint as IPEndPoint)?.Address;
+
+                #if ANDROID // on android, the recv data does not contains ip header.
+                var icmpOffset = 0;
+                #else
                 var ipHeader = IPHeader.Parse(recvBuf.Array, socket.AddressFamily);
-                var icmpHeader = IcmpPacket.ParseHeader(recvBuf.Array, 20);
-
-                result.Address = ipHeader.Source;
                 result.Ttl = ipHeader.TimeToLive;
+                var icmpOffset = ipHeader.Size;
+                #endif
+                var icmpHeader = IcmpPacket.ParseHeader(recvBuf.Array, icmpOffset);
                 result.Time = (int)((DateTime.Now.Ticks - timeBegin) / TimeSpan.TicksPerMillisecond);
 
                 var headerTypes = target.AddressFamily == AddressFamily.InterNetwork
@@ -226,6 +223,7 @@ namespace NetUtilities
                     else
                     {
                         result.PingStatus = IPStatus.Unknown;
+                        result.Exception = new Exception($"icmp type={icmpHeader.Type}, code={icmpHeader.Code}");
                     }
                 }
             }
