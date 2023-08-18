@@ -61,7 +61,7 @@ namespace Demo
                     }
                     else
                     {
-                        IPingDelegate ping = new Ping();
+                        IPingDelegate ping = new UDPPing();
                         var timeout = 4000;
                         var result = await ping.RunAsync(ip, ttl, timeout, 32);
                         Console.WriteLine($"ping {host} ({ip}) with ttl {ttl} and timeout {timeout}");
@@ -87,15 +87,11 @@ namespace Demo
                         trace.OnHop += (hop) => Console.WriteLine(hop);
                         
                         Console.WriteLine($"traceroute to {host} ({ip}), {options.MaxHops} hops max, {options.PacketSize} byte packets");
-                        await trace.RunAsync(options);
+                        await trace.RunAsync(options, CancellationToken.None);
                         
                         Console.WriteLine($"traceroute finish.");
                     }
                     
-                }
-                else if(input == Command.DnsServers)
-                {
-                    Console.WriteLine(string.Join("\n\n", NetworkInfo.GetDnsServers()));
                 }
             }
         }

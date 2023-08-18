@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Net;
 using System.Net.NetworkInformation;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace NetUtilities
@@ -50,35 +51,45 @@ namespace NetUtilities
 
         public event Action<HopInfo> OnHop;
 
-        public async Task<Result> RunAsync(Options opts)
+        public async Task<Result> RunAsync(Options opts, CancellationToken cancellationToken)
         {
             var result = new Result()
             {
                 Target = opts.Target, Hops = new List<HopInfo>()
             };
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return result;
+            }
 
             var ping = opts.PingDelegate;
             
             byte[] bytes = new byte[opts.PacketSize].Fill(0x55);
             for(int i = 1; i <= opts.MaxHops; i++)
             {
-                Debug.WriteLine($"ping     {i} at {DateTime.Now}");
-                var reply = await PingAsync(ping, opts.Target, bytes, i, opts.PingTimeout, opts.RetryTimes);
-
+                var reply = await PingAsync(ping, opts.Target, bytes, i, opts.PingTimeout, opts.RetryTimes, cancellationToken);
+                
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    return result;
+                }
+                
                 var hopInfo = new HopInfo()
                 {
                     Hop = i, Status = reply.PingStatus, Address = reply.Address, RTT = reply.Time
                 };
-                Debug.WriteLine($"nslookup {i} at {DateTime.Now}");
                 if (opts.ResolveHost && hopInfo.Status != IPStatus.TimedOut)
                 {
                     hopInfo.HostName = await NsLookup.GetHostNameAsync(reply.Address).Timeout(opts.NsLookupTimeout, false);
                 }
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    return result;
+                }
+                
                 result.Hops.Add(hopInfo);
                 OnHop?.Invoke(hopInfo);
   
-                Debug.WriteLine($"finish   {i} at {DateTime.Now}");
-
                 if(reply.Status == PingStatus.Success)
                 {
                     result.Succeed = true;
@@ -90,11 +101,15 @@ namespace NetUtilities
         }
 
         private static async Task<PingReply> PingAsync(IPingDelegate ping, IPAddress target, byte[] buffer, int ttl, int timeout,
-            int retryTimes)
+            int retryTimes, CancellationToken cancellationToken)
         {
             PingReply reply = new PingReply();
             do
             {
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    return reply;
+                }
                 try
                 {
                     reply = await ping.RunAsync(target, ttl, timeout, buffer);

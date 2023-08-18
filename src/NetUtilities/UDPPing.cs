@@ -175,8 +175,11 @@ namespace NetUtilities
             
             var socket = new Socket(target.AddressFamily, SocketType.Dgram, ProtocolType.Icmp);
             socket.DontFragment = !fragment;
+            socket.ReceiveTimeout = timeout;
             var timeBegin = DateTime.Now.Ticks;
             var packet = IcmpPacket.BuildEchoRequest(socket.AddressFamily, 0, 0, buffer).ToBytes();
+
+            var cancellationTokenSource = new CancellationTokenSource(timeout);
             try
             {
                 socket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.IpTimeToLive, ttl);
@@ -185,8 +188,10 @@ namespace NetUtilities
                 await socket.SendToAsync(new ArraySegment<byte>(packet), SocketFlags.None,
                     new IPEndPoint(target, Port));
                 var recvBuf = new ArraySegment<byte>(new byte[48 + buffer.Length + 28]);
-                var recvRet = await socket.ReceiveFromAsync(recvBuf, SocketFlags.None, new IPEndPoint(0, 0)).Timeout(timeout);
+                var recvRet = await socket.ReceiveFromAnyAsync(recvBuf, SocketFlags.None, cancellationTokenSource.Token);
 
+                cancellationTokenSource.Dispose();
+                
                 result.PacketSize = recvRet.ReceivedBytes;
                 result.Address = (recvRet.RemoteEndPoint as IPEndPoint)?.Address;
 
@@ -227,7 +232,7 @@ namespace NetUtilities
                     }
                 }
             }
-            catch (TimeoutException)
+            catch (TaskCanceledException)
             {
                 result.Status = PingStatus.Fail;
                 result.PingStatus = IPStatus.TimedOut;
