@@ -113,9 +113,9 @@ namespace NetUtilities
                 {
                     Type = data[index],
                     Code = data[index + 1],
-                    Checksum = (Int16)(data[index + 2] << 8 + data[index + 3]),
-                    Identifier = (Int16)(data[index + 4] << 8 + data[index + 5]),
-                    SequenceNum = (Int16)(data[index + 6] << 8 + data[index + 7]),
+                    Checksum = (Int16)((data[index + 2] << 8) + data[index + 3]),
+                    Identifier = (Int16)((data[index + 4] << 8) + data[index + 5]),
+                    SequenceNum = (Int16)((data[index + 6] << 8) + data[index + 7]),
                 };
             }
 
@@ -177,7 +177,8 @@ namespace NetUtilities
             socket.DontFragment = !fragment;
             socket.ReceiveTimeout = timeout;
             var timeBegin = DateTime.Now.Ticks;
-            var packet = IcmpPacket.BuildEchoRequest(socket.AddressFamily, 0, 0, buffer).ToBytes();
+            var id = (short)0x1a2b;
+            var packet = IcmpPacket.BuildEchoRequest(socket.AddressFamily, id, 0, buffer).ToBytes();
 
             var cancellationTokenSource = new CancellationTokenSource(timeout);
             try
@@ -185,24 +186,21 @@ namespace NetUtilities
                 socket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.IpTimeToLive, ttl);
                 socket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.MulticastTimeToLive, ttl);
 
-                await socket.SendToAsync(new ArraySegment<byte>(packet), SocketFlags.None,
-                    new IPEndPoint(target, Port));
+                var remote = new IPEndPoint(target, Port);
+
+                await socket.SendToAsync(new ArraySegment<byte>(packet), SocketFlags.None, remote);
+
                 var recvBuf = new ArraySegment<byte>(new byte[48 + buffer.Length + 28]);
-                var recvRet = await socket.ReceiveFromAnyAsync(recvBuf, SocketFlags.None, cancellationTokenSource.Token);
+
+                var (recvRet, ipHeader, icmpHeader) =
+                    await ReceiveIcmpReplyAsync(socket, id, recvBuf, cancellationTokenSource.Token);
 
                 cancellationTokenSource.Dispose();
                 
                 result.PacketSize = recvRet.ReceivedBytes;
-                result.Address = (recvRet.RemoteEndPoint as IPEndPoint)?.Address;
+                result.Address = ipHeader.Source;
 
-                #if ANDROID // on android, the recv data does not contains ip header.
-                var icmpOffset = 0;
-                #else
-                var ipHeader = IPHeader.Parse(recvBuf.Array, socket.AddressFamily);
                 result.Ttl = ipHeader.TimeToLive;
-                var icmpOffset = ipHeader.Size;
-                #endif
-                var icmpHeader = IcmpPacket.ParseHeader(recvBuf.Array, icmpOffset);
                 result.Time = (int)((DateTime.Now.Ticks - timeBegin) / TimeSpan.TicksPerMillisecond);
 
                 var headerTypes = target.AddressFamily == AddressFamily.InterNetwork
@@ -249,6 +247,40 @@ namespace NetUtilities
             }
 
             return result;
+        }
+
+        private async Task<(SocketReceiveFromResult, IPHeader, IcmpPacket)> ReceiveIcmpReplyAsync(Socket socket, short id, ArraySegment<byte> buffer, CancellationToken cancellationToken)
+        {
+            SocketReceiveFromResult recvRet = default;
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                recvRet = await socket.ReceiveFromAnyAsync(buffer, SocketFlags.None, cancellationToken);
+#if ANDROID // on android, the recv data does not contains ip header.
+                var icmpOffset = 0;
+#else
+                var ipHeader = IPHeader.Parse(buffer.Array, socket.AddressFamily);
+                var icmpOffset = ipHeader.Size;
+#endif
+                var icmpHeader = IcmpPacket.ParseHeader(buffer.Array, icmpOffset);
+                
+                var icmpHeaderType = socket.AddressFamily == AddressFamily.InterNetwork
+                    ? IcmpPacket.HeaderTypesV4
+                    : IcmpPacket.HeaderTypesV6;
+                
+                // skip echo request
+                if (icmpHeader.Type == icmpHeaderType.EchoRequest) continue;
+                
+                // skip packet that not belongs to ours
+                if (icmpHeader.Type == icmpHeaderType.EchoResponse && icmpHeader.Identifier != id)
+                {
+                    continue;
+                }
+                
+
+                return (recvRet, ipHeader, icmpHeader);
+            }
+
+            return default;
         }
     }
 }
