@@ -1,17 +1,12 @@
-using System;
-using System.Diagnostics;
 using System.Net;
-using System.Net.NetworkInformation;
 using System.Net.Sockets;
-using System.Runtime.InteropServices;
-using System.Threading;
 using System.Threading.Tasks;
 
 namespace NetUtilities
 {
-    public class UDPPing : IPingDelegate
+    public class IcmpPing : IPingDelegate
     {
-        private SocketPing _ping = new SocketPing(SocketType.Dgram, 7);
+        private SocketPing _ping = new SocketPing(SocketType.Raw, 0);
         
         public Task<PingReply> RunAsync(IPAddress target, int ttl = 64, int timeout = 5000, int packetSize = 32)
         {
