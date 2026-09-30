@@ -96,7 +96,7 @@ namespace NetUtilities
                     break;
                 }
 
-                // 探测本身出错（无权限、地址族不支持等）时后续每跳都会同样失败，不再空跑到 MaxHops
+                // 探测本身出错（无权限、地址族不支持等）时后续每跳多半同样失败，不再空跑到 MaxHops
                 if (reply.Status == PingStatus.Exception)
                 {
                     break;
