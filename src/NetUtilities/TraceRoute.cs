@@ -95,6 +95,12 @@ namespace NetUtilities
                     result.Succeed = true;
                     break;
                 }
+
+                // 探测本身出错（无权限、地址族不支持等）时后续每跳都会同样失败，不再空跑到 MaxHops
+                if (reply.Status == PingStatus.Exception)
+                {
+                    break;
+                }
             }
 
             return result;
@@ -118,6 +124,7 @@ namespace NetUtilities
                 {
                     reply.Target = target;
                     reply.Status = PingStatus.Exception;
+                    reply.PingStatus = IPStatus.Unknown;
                     reply.Exception = e;
                 }
             } while (retryTimes-- > 0 && reply.Status == PingStatus.Fail && reply.PingStatus == IPStatus.TimedOut);

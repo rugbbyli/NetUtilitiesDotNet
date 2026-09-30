@@ -166,7 +166,15 @@ namespace NetUtilities
         public async Task<PingReply> RunAsync(IPAddress target, int ttl, bool fragment, int timeout, byte[] buffer)
         {
             var result = new PingReply() { Target = target };
-            
+
+            if (target.AddressFamily != AddressFamily.InterNetwork)
+            {
+                result.Status = PingStatus.Exception;
+                result.PingStatus = IPStatus.Unknown;
+                result.Exception = new NotSupportedException($"only IPv4 is supported: {target}");
+                return result;
+            }
+
             var socket = new Socket(target.AddressFamily, _socketType, ProtocolType.Icmp);
             socket.DontFragment = !fragment;
             socket.ReceiveTimeout = timeout;
